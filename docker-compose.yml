@@ -1,0 +1,83 @@
+# ============================================================
+# 一站式起本地全套依赖：应用 + Redis + PostgreSQL
+#
+#   docker compose up -d
+#   docker compose exec app python run_cli.py --doctor     # 确认 Redis/PG 已变成"真实"
+#   open http://127.0.0.1:8077/                            # 演示控制台
+#
+# 说明：
+#   · Redis    → 会话记忆（不启动也能跑，会自动降级为内存 + JSONL）
+#   · Postgres → 长期用户偏好（不启动也能跑，会自动降级为 SQLite）
+#   · Langfuse → 没放进 compose：它自己依赖 ClickHouse + S3，比较重。
+#                直接用 Langfuse Cloud，或参考官方 compose 单独部署，
+#                然后把 LANGFUSE_* 三个变量填进 .env 即可。
+#   · 沙箱容器 → 应用会通过 docker.sock 起一次性容器跑分析代码（真隔离）。
+#                所以这里把 socket 挂进去；不需要真隔离可以删掉该挂载，
+#                应用会自动回退到"子进程 + AST 校验"。
+# ============================================================
+services:
+  app:
+    build: .
+    container_name: aftersale-agent
+    ports:
+      - "8077:8077"
+    environment:
+      # 容器内用服务名连，不是 127.0.0.1
+      REDIS_URL: redis://redis:6379/0
+      POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/aftersale
+      REDIS_ENABLED: "true"
+      POSTGRES_ENABLED: "true"
+      GRAPH_ENGINE: auto
+      MOCK_LLM: "${MOCK_LLM:-false}"
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      LLM_BASE_URL: "${LLM_BASE_URL:-https://api.deepseek.com/v1}"
+      LLM_MODEL: "${LLM_MODEL:-deepseek-chat}"
+      LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
+      LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-}"
+      LANGFUSE_HOST: "${LANGFUSE_HOST:-https://cloud.langfuse.com}"
+    volumes:
+      - ./data:/app/data                       # Trace / 检查点 / SQLite 落盘到宿主机
+      - /var/run/docker.sock:/var/run/docker.sock   # 代码沙箱的真隔离需要它
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: aftersale-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: aftersale-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: aftersale
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d aftersale"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  pg-data:

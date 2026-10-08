@@ -1,0 +1,32 @@
+.git
+.gitignore
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+*.egg-info
+.env
+.env.local
+.idea
+.vscode
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.DS_Store
+Thumbs.db
+
+# 运行期数据：数据库、Trace、检查点都在本机，不进镜像
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/traces
+data/state
+data/.test-tmp
+
+# 文档与截图不进镜像
+docs
+README.md
+
+# Windows 一键启动脚本在容器里没有意义
+一键启动.bat
